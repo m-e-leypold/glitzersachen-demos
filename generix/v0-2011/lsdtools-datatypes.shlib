@@ -1,0 +1,211 @@
+#!/bin/bash
+
+#
+# -- Quoting strings and arguments ----------------------------------------
+#
+
+quote_stdin(){
+
+    # Shell quote standard input, output to standard output
+
+    echo -n "'"
+    sed "s|'|'"'\\'"''|"
+    echo -n "'"
+}
+
+quote_args(){
+
+    # Shell quote all command line arguments, output to stdout
+
+     getopt -o '' -- "$@" | cut -c5-
+}
+
+write_var(){
+    
+    # Write variable to standard output as assignment (in shell
+    # syntax). Useful for saveing variables and for passing variables
+    # to parent processes.
+    #
+    # $1 - Name of variable
+    # $2 - Name to be used in assignment
+
+    echo -n "${2:-${1}}="
+    eval 'echo -n "$'"$1"'"' | quote_stdin
+
+    # Example:  Z="Karl's place"; write_var Z LOCATION   results in the 
+    #           following output:
+    #
+    #           LOCATION='Karl'\''s place'
+ }
+
+
+write_vars(){
+
+    # Write multiple variable to standard output as assignment (in a
+    # form that can be sourced or evaluated by the shell to restore
+    # the variables.
+    #
+    # Usage: write_vars [-s <suffix>] [-p <prefix>] <variable-names ...>
+    #
+    # <prefix> or <suffix> will be prepended or appended to the
+    # variable names in the output. Variable content will be quoted
+    # properly.
+
+    ( 
+	TMP_PREFIX=""
+	TMP_SUFFIX=""
+	while test "$#" -gt 0; do
+	    case "$1" in
+		-p) TMP_PREFIX="$2"; shift 2;;
+		-s) TMP_SUFFIX="$2"; shift 2;;
+		*)  break;;
+	    esac
+	done
+	for TMP_VAR in $@; do
+	    write_var "$TMP_VAR" "$TMP_PREFIX""$TMP_VAR""$TMP_SUFFIX"
+	    echo
+	done
+    )    
+    
+    # Example:  write_vars -s _old HOME PATH  will result in output like
+    #
+    #     HOME_old='/home/user'
+    #     PATH_old='/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games'
+    #
+}
+
+args_print(){
+
+    # Print a list represenation of $@.
+    #
+    # $1 ... - Items to print
+
+    echo -n "{";
+    while test $# -gt 1; do
+	echo -n "$1" | quote_stdin
+	echo -n ", "
+	shift
+    done
+    if test "$#" -gt 0; then
+	echo -n "$1" | quote_stdin
+    fi
+    echo -n "}";
+}
+
+#
+# -- list data type -------------------------------------------------------------
+#
+# XXX TODO: Explain internal representation
+
+list_init(){
+    #
+    # Initialize list variable
+    #
+    # $1 - Name of list variable
+
+    eval "$1"'="--"'
+}
+
+list_set(){
+    #
+    # Set items in list
+    #
+    # $1     - Name of list variable
+    # $2 ... - Items to be assigned to list
+
+    eval "$1"'="$(shift; getopt -o" " "$@")"'
+}
+
+list_count(){
+    #
+    # Count items in list
+    #
+    # $1     - Name of list variable
+
+    ( eval 'eval '"'"'set -- '"'"' "$'"$1"'"; shift; echo $#' ) || return 1
+}
+
+list_items(){
+    #
+    # Output quoted items in list
+    #
+    # $1     - Name of list variable
+
+    eval 'echo $'"$1"' | cut -c4-'
+}
+
+list_shift(){
+
+    # Shift list $2 items to the left
+    #
+    # $1 - Name of list variable
+    # $2 - Item count by which to shift the list
+
+    eval 'eval  '"'"'set '"'"'"$'"$1"'"'"'"'; 
+          shift '"'"'"${2:-}"'"'"'; 
+          list_set '"$1"' "$@"'"'"'
+         '
+    # shifting by more items than there are items in the list hast the
+    # result that the shift is silently ignored. Trace shows that
+    # e.g. shift 9 is performed, but apparently it has no effekt on
+    # $@. There is also no error message. I think this is a bug in the
+    # shell that error handling in nested evals is flakey
+}
+
+list_print(){
+
+    # Print a list represenation (not in shell syntax)
+    #
+    # $1 - Name of list variable
+    # $2 - optional, flag -n to supress linefeed after printing
+
+    eval '
+      echo -n "'"$1"'={";
+      eval "set $'"$1"'";
+      while test $# -gt 1; do
+	  echo -n "$1" | quote_stdin
+	  echo -n ", "
+	  shift
+      done
+      if test "$#" -gt 0; then
+	  echo -n "$1" | quote_stdin
+      fi
+      echo '"${2:-}"' "}"
+    '
+
+    # Example:  list_set T 1 2 "a'c" 3 ; list_print T  produces the 
+    #           following output:
+    #
+    #           T={'1', '2', 'a'\''c', '3'}
+}
+
+list_append(){
+    #
+    # Append items to list
+    #
+    # $1     - Name of list variable
+    # $2 ... - Items to be appended.
+    
+    eval "$1"'="$'"$1"' $(shift 1; quote_args "$@")"'
+}
+
+
+list_prepend(){
+    #
+    # Prepend items to list
+    #
+    # $1     - Name of list variable
+    # $2 ... - Items to be prepended.
+    
+    eval "$1"'=" -- $(shift 1; quote_args "$@") $(list_items '"$1"')"'
+}
+
+list_apply(){
+    #
+    # Apply list items to command
+    # 
+    # $1     - Name of list variable
+    # $2 ... - Command line to which append the list variables
+
+    eval "$(shift 1; quote_args "$@") $(list_items $1)"
+}

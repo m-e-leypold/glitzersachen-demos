@@ -1,0 +1,4 @@
+2011-08-07  M E Leypold  <mel@etc-network.de>
+
+	* Makefile (CFLAGS): Added -g.
+
